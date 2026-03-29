@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>성경 읽기 차트 (완전체 PRO)</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2c4a7c">
+<style>
+body{font-family:sans-serif;margin:0;background:#f0f2f5}
+.top{padding:15px;background:#2c4a7c;color:#fff}
+button{margin:5px;padding:8px 12px;border:none;border-radius:6px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:10px}
+.book{background:#fff;padding:10px;border-radius:8px}
+.ch{display:inline-block;margin:2px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:11px}
+.ch.done{background:#2d7a3a;color:#fff}
+.today{background:#ffeaa7}
+</style>
+</head>
+<body>
+
+<div class="top">
+<h3>📖 성경 읽기 차트 PRO</h3>
+<button onclick="openTodayAll()">오늘 읽기 전체 열기</button>
+<button onclick="resetAll()">초기화</button>
+</div>
+
+<div id="app" class="grid"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+<script>
+// -------------------- 데이터 --------------------
+const BOOKS=[
+{name:"창세기",ch:50},{name:"출애굽기",ch:40},{name:"레위기",ch:27},
+{name:"민수기",ch:36},{name:"신명기",ch:34},{name:"여호수아",ch:24},
+{name:"사사기",ch:21},{name:"룻기",ch:4},{name:"사무엘상",ch:31},
+{name:"사무엘하",ch:24},{name:"열왕기상",ch:22},{name:"열왕기하",ch:25},
+{name:"역대상",ch:29},{name:"역대하",ch:36},{name:"에스라",ch:10},
+{name:"느헤미야",ch:13},{name:"에스더",ch:10},{name:"욥기",ch:42},
+{name:"시편",ch:150},{name:"잠언",ch:31},{name:"전도서",ch:12},
+{name:"아가",ch:8},{name:"이사야",ch:66},{name:"예레미야",ch:52},
+{name:"예레미야애가",ch:5},{name:"에스겔",ch:48},{name:"다니엘",ch:12},
+{name:"호세아",ch:14},{name:"요엘",ch:3},{name:"아모스",ch:9},
+{name:"오바댜",ch:1},{name:"요나",ch:4},{name:"미가",ch:7},
+{name:"나훔",ch:3},{name:"하박국",ch:3},{name:"스바냐",ch:3},
+{name:"학개",ch:2},{name:"스가랴",ch:14},{name:"말라기",ch:4},
+{name:"마태복음",ch:28},{name:"마가복음",ch:16},{name:"누가복음",ch:24},
+{name:"요한복음",ch:21},{name:"사도행전",ch:28},{name:"로마서",ch:16},
+{name:"고린도전서",ch:16},{name:"고린도후서",ch:13},{name:"갈라디아서",ch:6},
+{name:"에베소서",ch:6},{name:"빌립보서",ch:4},{name:"골로새서",ch:4},
+{name:"데살로니가전서",ch:5},{name:"데살로니가후서",ch:3},{name:"디모데전서",ch:6},
+{name:"디모데후서",ch:4},{name:"디도서",ch:3},{name:"빌레몬서",ch:1},
+{name:"히브리서",ch:13},{name:"야고보서",ch:5},{name:"베드로전서",ch:5},
+{name:"베드로후서",ch:3},{name:"요한1서",ch:5},{name:"요한2서",ch:1},
+{name:"요한3서",ch:1},{name:"유다서",ch:1},{name:"요한계시록",ch:22}
+];
+
+// 전체 장 생성
+let ALL=[];
+BOOKS.forEach((b,bi)=>{
+ for(let i=1;i<=b.ch;i++){
+  ALL.push({bi,ci:i});
+ }
+});
+
+// 1년 분배
+let PLAN=[];
+let per=Math.floor(ALL.length/365);
+let extra=ALL.length%365;
+let idx=0;
+for(let d=0;d<365;d++){
+ let count=per+(d<extra?1:0);
+ PLAN.push(ALL.slice(idx,idx+count));
+ idx+=count;
+}
+
+// -------------------- 상태 --------------------
+let done=new Set(JSON.parse(localStorage.getItem("done")||"[]"));
+
+function save(){localStorage.setItem("done",JSON.stringify([...done]));}
+
+// -------------------- JW --------------------
+function jwUrl(b,c){
+ return `https://www.jw.org/ko/library/bible/study-bible/books/${BOOKS[b].name}/${c}/`;
+}
+
+function openJW(b,c){window.open(jwUrl(b,c),'_blank');}
+
+// -------------------- 오늘 --------------------
+function getTodayIndex(){
+ let start=new Date(new Date().getFullYear(),0,1);
+ let now=new Date();
+ return Math.floor((now-start)/86400000);
+}
+
+function openTodayAll(){
+ let t=getTodayIndex();
+ if(!PLAN[t]) return;
+ PLAN[t].forEach(x=>openJW(x.bi,x.ci));
+}
+
+// -------------------- 체크 --------------------
+function toggle(b,c,el){
+ let k=b+"_"+c;
+ if(done.has(k)){done.delete(k);el.classList.remove("done");}
+ else{done.add(k);el.classList.add("done");}
+ save(); sync();
+}
+
+function resetAll(){
+ if(confirm("초기화?")){done.clear();save();location.reload();}
+}
+
+// -------------------- Firebase (관리자 구조) --------------------
+const config={apiKey:"AIzaSyDzkXA8",projectId:"bible-reading-88db5"};
+let db=null;
+try{
+ firebase.initializeApp(config);
+ db=firebase.firestore();
+ db.doc("shared/main").onSnapshot(s=>{
+  if(s.exists){done=new Set(s.data().done||[]);save();location.reload();}
+ });
+}catch(e){}
+
+function sync(){ if(db) db.doc("shared/main").set({done:[...done]}); }
+
+// -------------------- UI --------------------
+const app=document.getElementById("app");
+let todaySet=new Set((PLAN[getTodayIndex()]||[]).map(x=>x.bi+"_"+x.ci));
+
+BOOKS.forEach((b,bi)=>{
+ let div=document.createElement("div");
+ div.className="book";
+ div.innerHTML=`<b>${b.name}</b><br>`;
+ for(let i=1;i<=b.ch;i++){
+  let span=document.createElement("span");
+  span.className="ch";
+  if(done.has(bi+"_"+i)) span.classList.add("done");
+  if(todaySet.has(bi+"_"+i)) span.classList.add("today");
+  span.textContent=i;
+  span.onclick=()=>toggle(bi,i,span);
+  span.ondblclick=()=>openJW(bi,i);
+  div.appendChild(span);
+ }
+ app.appendChild(div);
+});
+
+// -------------------- PWA --------------------
+if('serviceWorker' in navigator){
+ navigator.serviceWorker.register('sw.js');
+}
+
+</script>
+</body>
+</html>
